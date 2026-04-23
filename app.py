@@ -48,6 +48,7 @@ def pct_badge(val: float) -> str:
 # KONFIGURASI
 # ========================
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/152F-tMvERYDC18XRKwfY2JWhIP1i0K5Z7pWmgiKazp0"
+TARGET_INVESTASI = 100000000  # Target 100 Juta
 
 import json
 
@@ -68,7 +69,7 @@ def load_data():
     df = pd.DataFrame(sheet.get_all_records())
     df.columns          = df.columns.str.strip()
     df["Jenis"]         = df["Jenis"].str.strip()
-    df["Tanggal"]       = pd.to_datetime(df["Tanggal"])
+    df["Tanggal"]       = pd.to_datetime(df["Tanggal"], errors="coerce")
     df["Nominal"]       = pd.to_numeric(df["Nominal"],          errors="coerce").fillna(0)
     df["Nilai Portofolio"] = pd.to_numeric(df["Nilai Portofolio"], errors="coerce").fillna(0)
     return df
@@ -124,6 +125,35 @@ st.markdown(f"""
   <div class="live-pill"><div class="live-dot"></div>Live · Google Sheets</div>
 </div>
 """, unsafe_allow_html=True)
+
+# --- PROGRESS BAR TARGET ---
+target_progress = (nilai_portofolio / TARGET_INVESTASI) * 100 if TARGET_INVESTASI > 0 else 0
+target_progress_clamped = min(target_progress, 100)
+
+st.markdown(f"""
+<div style="margin-bottom: 24px; padding: 16px 20px; background: #111827; border: 1px solid #1e293b; border-radius: 14px;">
+    <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: #94a3b8; margin-bottom: 8px;">
+        <span>🎯 Target Investasi: <span style="color:#f1f5f9">{fmt(TARGET_INVESTASI)}</span></span>
+        <span style="color:#60a5fa">{target_progress:.1f}%</span>
+    </div>
+    <div style="width: 100%; background-color: #1e293b; border-radius: 8px; height: 10px;">
+        <div style="width: {target_progress_clamped}%; background: linear-gradient(90deg, #3b82f6, #60a5fa); height: 10px; border-radius: 8px; transition: width 1s ease-in-out;"></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ========================
+# TOMBOL AKSI
+# ========================
+c1, c2, _ = st.columns([1.5, 1.5, 5])
+with c1:
+    if st.button("🔄 Refresh Data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+with c2:
+    st.link_button("📝 Input Data Baru", "https://docs.google.com/forms/d/e/1FAIpQLScwfJXsqGB1g5gLAWv9W3bGpl2z2n2jUywWrf7WpgN5FhB3Zg/viewform", use_container_width=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 
 # ========================
@@ -213,16 +243,41 @@ st.markdown(f"""
 
 
 # ========================
-# CHART
+# CHART & FILTER WAKTU
 # ========================
+st.markdown('<div class="sec-title" style="margin-bottom: 8px; margin-top: 10px;">📅 Filter Rentang Waktu Grafik</div>', unsafe_allow_html=True)
+
+col_f1, _ = st.columns([1, 4])
+with col_f1:
+    time_filter = st.selectbox(
+        "Waktu", 
+        ["Semua Waktu", "Tahun Ini", "Bulan Ini", "30 Hari Terakhir", "7 Hari Terakhir"], 
+        label_visibility="collapsed"
+    )
+
+# Filter Dataframe for Charts
+now_date = pd.Timestamp.now()
+porto_valid_filtered = porto_valid.copy()
+
+if time_filter == "Tahun Ini":
+    porto_valid_filtered = porto_valid_filtered[porto_valid_filtered["Tanggal"].dt.year == now_date.year]
+elif time_filter == "Bulan Ini":
+    porto_valid_filtered = porto_valid_filtered[(porto_valid_filtered["Tanggal"].dt.year == now_date.year) & (porto_valid_filtered["Tanggal"].dt.month == now_date.month)]
+elif time_filter == "30 Hari Terakhir":
+    porto_valid_filtered = porto_valid_filtered[porto_valid_filtered["Tanggal"] >= (now_date - pd.Timedelta(days=30))]
+elif time_filter == "7 Hari Terakhir":
+    porto_valid_filtered = porto_valid_filtered[porto_valid_filtered["Tanggal"] >= (now_date - pd.Timedelta(days=7))]
+
+st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
 col_a, col_b = st.columns([3, 2])
 
 with col_a:
     st.markdown('<div class="sec-card">', unsafe_allow_html=True)
     st.markdown('<div class="sec-title">📈 Performa Nilai Portofolio</div>', unsafe_allow_html=True)
 
-    if not porto_valid.empty:
-        chart_df = porto_valid[["Tanggal", "Nilai Portofolio"]].copy()
+    if not porto_valid_filtered.empty:
+        chart_df = porto_valid_filtered[["Tanggal", "Nilai Portofolio"]].copy()
 
         area = alt.Chart(chart_df).mark_area(
             line={"color": "#3b82f6", "strokeWidth": 2.5},
@@ -293,7 +348,8 @@ with col_b:
     st.markdown('<div class="sec-card">', unsafe_allow_html=True)
     st.markdown('<div class="sec-title">📊 Growth per Update (%)</div>', unsafe_allow_html=True)
 
-    df_g = df_update.dropna(subset=["Growth (%)"]).copy()
+    # Gunakan porto_valid_filtered untuk filter waktu yang konsisten
+    df_g = df_update.loc[df_update.index.isin(porto_valid_filtered.index)].dropna(subset=["Growth (%)"]).copy()
     if not df_g.empty:
         df_g["warna"] = df_g["Growth (%)"].apply(lambda v: "naik" if v >= 0 else "turun")
 
@@ -396,11 +452,6 @@ st.markdown("</div>", unsafe_allow_html=True)
 # FOOTER
 # ========================
 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-_, mid, _ = st.columns([2, 1, 2])
-with mid:
-    if st.button("🔄 Refresh Data", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
 
 st.markdown(f"""
 <div class="dash-footer">
