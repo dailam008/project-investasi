@@ -69,9 +69,23 @@ def load_data():
     df = pd.DataFrame(sheet.get_all_records())
     df.columns          = df.columns.str.strip()
     df["Jenis"]         = df["Jenis"].str.strip()
-    df["Tanggal"]       = pd.to_datetime(df["Tanggal"], errors="coerce")
-    df["Nominal"]       = pd.to_numeric(df["Nominal"],          errors="coerce").fillna(0)
+    
+    # Fungsi parsing tanggal yang lebih fleksibel
+    def parse_tanggal(val):
+        if not val: return pd.NaT
+        # Coba format default (ISO)
+        dt = pd.to_datetime(val, errors='coerce')
+        if pd.isna(dt):
+            # Coba format DayFirst (Google Form)
+            dt = pd.to_datetime(val, dayfirst=True, errors='coerce')
+        return dt
+
+    df["Tanggal"] = df["Tanggal"].apply(parse_tanggal)
+    df["Nominal"] = pd.to_numeric(df["Nominal"], errors="coerce").fillna(0)
     df["Nilai Portofolio"] = pd.to_numeric(df["Nilai Portofolio"], errors="coerce").fillna(0)
+    
+    # Hapus hanya jika benar-benar bukan tanggal
+    df = df.dropna(subset=["Tanggal"])
     return df
 
 with st.spinner("Memuat data…"):
@@ -426,7 +440,13 @@ for _, r in df_show.iterrows():
              else '<span class="tag-update">Update</span>'
     nom    = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
     porto  = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
-    date_s = r["Tanggal"].strftime("%d %b %Y")
+    
+    # Pastikan Tanggal valid sebelum strftime
+    if pd.notnull(r["Tanggal"]):
+        date_s = r["Tanggal"].strftime("%d %b %Y")
+    else:
+        date_s = "Invalid Date"
+        
     rows  += f"""
     <tr>
       <td>{date_s}</td>
