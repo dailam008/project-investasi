@@ -84,8 +84,23 @@ def load_data():
     df["Nominal"] = pd.to_numeric(df["Nominal"], errors="coerce").fillna(0)
     df["Nilai Portofolio"] = pd.to_numeric(df["Nilai Portofolio"], errors="coerce").fillna(0)
     
-    # Hapus hanya jika benar-benar bukan tanggal
-    df = df.dropna(subset=["Tanggal"])
+    # ========================
+    # LOGIKA KALKULASI DINAMIS
+    # ========================
+    df = df.sort_values("Tanggal")
+    
+    current_val = 0
+    list_dynamic_val = []
+    
+    for i, row in df.iterrows():
+        if row["Jenis"] == "Beli":
+            current_val += row["Nominal"]
+        elif row["Jenis"] == "Update" and row["Nilai Portofolio"] > 0:
+            current_val = row["Nilai Portofolio"]
+        
+        list_dynamic_val.append(current_val)
+        
+    df["Nilai Portofolio"] = list_dynamic_val # Override dengan nilai dinamis
     return df
 
 with st.spinner("Memuat data…"):
@@ -99,18 +114,16 @@ with st.spinner("Memuat data…"):
 # ========================
 # KALKULASI
 # ========================
-df_beli   = df[df["Jenis"] == "Beli"].copy()
+# Perhitungan KPI
+total_modal      = df[df["Jenis"] == "Beli"]["Nominal"].sum()
+nilai_portofolio = df["Nilai Portofolio"].iloc[-1] if not df.empty else 0
+profit           = nilai_portofolio - total_modal
+growth           = (profit / total_modal * 100) if total_modal > 0 else 0
+
 df_update = df[df["Jenis"] == "Update"].copy().sort_values("Tanggal").reset_index(drop=True)
-
-total_modal      = df_beli["Nominal"].sum()
-porto_valid      = df_update[df_update["Nilai Portofolio"] > 0]
-nilai_portofolio = porto_valid["Nilai Portofolio"].iloc[-1] if not porto_valid.empty else total_modal
-
-profit = nilai_portofolio - total_modal
-growth = (profit / total_modal * 100) if total_modal > 0 else 0.0
-
 df_update["Growth (%)"] = df_update["Nilai Portofolio"].pct_change() * 100
 
+porto_valid = df[df["Nilai Portofolio"] > 0]
 all_porto = porto_valid["Nilai Portofolio"] if not porto_valid.empty else pd.Series([nilai_portofolio])
 max_porto = all_porto.max()
 min_porto = all_porto.min()
@@ -119,8 +132,8 @@ avg_porto = all_porto.mean()
 durasi_hari = (df["Tanggal"].max() - df["Tanggal"].min()).days
 now_str     = datetime.now().strftime("%d %b %Y, %H:%M")
 
-if len(porto_valid) >= 2:
-    tren_label = "naik" if porto_valid["Nilai Portofolio"].iloc[-1] > porto_valid["Nilai Portofolio"].iloc[-2] else "turun"
+if len(df) >= 2:
+    tren_label = "naik" if df["Nilai Portofolio"].iloc[-1] > df["Nilai Portofolio"].iloc[-2] else "turun"
     tren_icon  = "📈" if tren_label == "naik" else "📉"
 else:
     tren_label = "stabil"
@@ -290,8 +303,8 @@ with col_a:
     st.markdown('<div class="sec-card">', unsafe_allow_html=True)
     st.markdown('<div class="sec-title">📈 Performa Nilai Portofolio</div>', unsafe_allow_html=True)
 
-    if not porto_valid_filtered.empty:
-        chart_df = porto_valid_filtered[["Tanggal", "Nilai Portofolio"]].copy()
+    if not df.empty:
+        chart_df = df[["Tanggal", "Nilai Portofolio"]].copy()
 
         area = alt.Chart(chart_df).mark_area(
             line={"color": "#3b82f6", "strokeWidth": 2.5},
