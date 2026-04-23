@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 import altair as alt
 from datetime import datetime
+import json
 
 # ========================
 # PAGE CONFIG
@@ -24,14 +25,13 @@ except FileNotFoundError:
     pass
 
 
-
 # ========================
 # HELPERS
 # ========================
 def fmt(n: float) -> str:
-    if n >= 1_000_000_000:
+    if abs(n) >= 1_000_000_000:
         return f"Rp{n/1_000_000_000:.2f}M"
-    if n >= 1_000_000:
+    if abs(n) >= 1_000_000:
         return f"Rp{n/1_000_000:.2f}jt"
     return f"Rp{n:,.0f}"
 
@@ -49,60 +49,74 @@ def pct_badge(val: float) -> str:
 # ========================
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/152F-tMvERYDC18XRKwfY2JWhIP1i0K5Z7pWmgiKazp0"
 TARGET_INVESTASI = 100000000  # Target 100 Juta
+GFORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScwfJXsqGB1g5gLAWv9W3bGpl2z2n2jUywWrf7WpgN5FhB3Zg/viewform"
 
-import json
+
+# ========================
+# KONEKSI GOOGLE SHEETS
+# ========================
+def get_gspread_client():
+    """Buat koneksi gspread (cached di session_state)."""
+    try:
+        creds_dict = json.loads(st.secrets["GCP_CREDENTIALS_JSON"])
+        return gspread.service_account_from_dict(creds_dict)
+    except Exception:
+        return gspread.service_account(filename="credentials.json")
+
+def get_sheet():
+    """Dapatkan object sheet langsung."""
+    client = get_gspread_client()
+    return client.open_by_url(SPREADSHEET_URL).sheet1
+
 
 # ========================
 # LOAD DATA
 # ========================
 @st.cache_data(ttl=300)
 def load_data():
-    try:
-        # Coba menggunakan Streamlit Secrets (untuk deployment)
-        creds_dict = json.loads(st.secrets["GCP_CREDENTIALS_JSON"])
-        client = gspread.service_account_from_dict(creds_dict)
-    except Exception:
-        # Fallback ke file lokal jika rahasia tidak ditemukan
-        client = gspread.service_account(filename="credentials.json")
-        
-    sheet  = client.open_by_url(SPREADSHEET_URL).sheet1
+    sheet = get_sheet()
     df = pd.DataFrame(sheet.get_all_records())
-    df.columns          = df.columns.str.strip()
-    df["Jenis"]         = df["Jenis"].str.strip()
-    
-    # Fungsi parsing tanggal yang lebih fleksibel
+    df.columns = df.columns.str.strip()
+    df["Jenis"] = df["Jenis"].str.strip()
+
+    # Parsing tanggal fleksibel (ISO & Google Form)
     def parse_tanggal(val):
-        if not val: return pd.NaT
-        # Coba format default (ISO)
+        if not val:
+            return pd.NaT
         dt = pd.to_datetime(val, errors='coerce')
         if pd.isna(dt):
-            # Coba format DayFirst (Google Form)
             dt = pd.to_datetime(val, dayfirst=True, errors='coerce')
         return dt
 
     df["Tanggal"] = df["Tanggal"].apply(parse_tanggal)
     df["Nominal"] = pd.to_numeric(df["Nominal"], errors="coerce").fillna(0)
     df["Nilai Portofolio"] = pd.to_numeric(df["Nilai Portofolio"], errors="coerce").fillna(0)
+
+    # Hapus baris tanpa tanggal valid
+    df = df.dropna(subset=["Tanggal"])
     
-    # ========================
-    # LOGIKA KALKULASI DINAMIS
-    # ========================
-    df = df.sort_values("Tanggal")
+    # Simpan posisi baris asli di Sheet SEBELUM sorting
+    # Sheet: baris 1 = header, data mulai dari baris 2
+    # DataFrame index 0 = Sheet baris 2, index 1 = Sheet baris 3, dst.
+    df["_sheet_row"] = range(2, len(df) + 2)
     
-    current_val = 0
-    list_dynamic_val = []
-    
-    for i, row in df.iterrows():
-        if row["Jenis"] == "Beli":
-            current_val += row["Nominal"]
-        elif row["Jenis"] == "Update" and row["Nilai Portofolio"] > 0:
-            current_val = row["Nilai Portofolio"]
-        
-        list_dynamic_val.append(current_val)
-        
-    df["Nilai Portofolio"] = list_dynamic_val # Override dengan nilai dinamis
+    df = df.sort_values("Tanggal").reset_index(drop=True)
     return df
 
+
+# ========================
+# HAPUS BARIS DARI SHEET
+# ========================
+def delete_row_from_sheet(sheet_row: int):
+    """Hapus baris dari Google Sheet berdasarkan nomor baris asli di Sheet."""
+    sheet = get_sheet()
+    sheet.delete_rows(sheet_row)
+    st.cache_data.clear()
+
+
+# ========================
+# LOAD & ERROR HANDLING
+# ========================
 with st.spinner("Memuat data…"):
     try:
         df = load_data()
@@ -112,33 +126,53 @@ with st.spinner("Memuat data…"):
 
 
 # ========================
-# KALKULASI
+# DATA MENTAH & FILTERED
 # ========================
-# Perhitungan KPI
-total_modal      = df[df["Jenis"] == "Beli"]["Nominal"].sum()
-df_beli          = df[df["Jenis"] == "Beli"].copy()
-nilai_portofolio = df["Nilai Portofolio"].iloc[-1] if not df.empty else 0
-profit           = nilai_portofolio - total_modal
-growth           = (profit / total_modal * 100) if total_modal > 0 else 0
+df_raw = df.copy()  # Data mentah untuk tabel (persis seperti Sheet)
 
+# Pisahkan data Beli dan Update
+df_beli = df[df["Jenis"] == "Beli"].copy()
 df_update = df[df["Jenis"] == "Update"].copy().sort_values("Tanggal").reset_index(drop=True)
-df_update["Growth (%)"] = df_update["Nilai Portofolio"].pct_change() * 100
 
-porto_valid = df[df["Nilai Portofolio"] > 0]
-all_porto = porto_valid["Nilai Portofolio"] if not porto_valid.empty else pd.Series([nilai_portofolio])
-max_porto = all_porto.max()
-min_porto = all_porto.min()
-avg_porto = all_porto.mean()
 
-durasi_hari = (df["Tanggal"].max() - df["Tanggal"].min()).days
-now_str     = datetime.now().strftime("%d %b %Y, %H:%M")
+# ========================
+# PERHITUNGAN KPI (SEDERHANA & AKURAT)
+# ========================
+# Total Modal = jumlah semua uang yang dibelanjakan
+total_modal = df_beli["Nominal"].sum()
 
-if len(df) >= 2:
-    tren_label = "naik" if df["Nilai Portofolio"].iloc[-1] > df["Nilai Portofolio"].iloc[-2] else "turun"
-    tren_icon  = "📈" if tren_label == "naik" else "📉"
+# Nilai Portofolio = data Update TERAKHIR dari Bibit (sumber kebenaran)
+if not df_update.empty and df_update["Nilai Portofolio"].iloc[-1] > 0:
+    nilai_portofolio = df_update["Nilai Portofolio"].iloc[-1]
+else:
+    nilai_portofolio = total_modal  # Jika belum pernah Update, anggap = modal
+
+# Profit & Growth
+profit = nilai_portofolio - total_modal
+growth = (profit / total_modal * 100) if total_modal > 0 else 0.0
+
+# Growth antar-Update (performa pasar sesungguhnya dari Bibit)
+if len(df_update) >= 2:
+    df_update["Growth (%)"] = df_update["Nilai Portofolio"].pct_change() * 100
+else:
+    df_update["Growth (%)"] = 0.0
+
+# Statistik portofolio (hanya dari data Update — data real dari Bibit)
+porto_update = df_update[df_update["Nilai Portofolio"] > 0]["Nilai Portofolio"]
+max_porto = porto_update.max() if not porto_update.empty else nilai_portofolio
+min_porto = porto_update.min() if not porto_update.empty else nilai_portofolio
+avg_porto = porto_update.mean() if not porto_update.empty else nilai_portofolio
+
+durasi_hari = (df["Tanggal"].max() - df["Tanggal"].min()).days if len(df) >= 2 else 0
+now_str = datetime.now().strftime("%d %b %Y, %H:%M")
+
+# Tren (berdasarkan 2 Update terakhir dari Bibit)
+if len(df_update) >= 2:
+    tren_label = "naik" if df_update["Nilai Portofolio"].iloc[-1] > df_update["Nilai Portofolio"].iloc[-2] else "turun"
+    tren_icon = "📈" if tren_label == "naik" else "📉"
 else:
     tren_label = "stabil"
-    tren_icon  = "➡️"
+    tren_icon = "➡️"
 
 
 # ========================
@@ -179,7 +213,7 @@ with c1:
         st.cache_data.clear()
         st.rerun()
 with c2:
-    st.link_button("📝 Input Data Baru", "https://docs.google.com/forms/d/e/1FAIpQLScwfJXsqGB1g5gLAWv9W3bGpl2z2n2jUywWrf7WpgN5FhB3Zg/viewform", use_container_width=True)
+    st.link_button("📝 Input Data Baru", GFORM_URL, use_container_width=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -278,23 +312,23 @@ st.markdown('<div class="sec-title" style="margin-bottom: 8px; margin-top: 10px;
 col_f1, _ = st.columns([1, 4])
 with col_f1:
     time_filter = st.selectbox(
-        "Waktu", 
-        ["Semua Waktu", "Tahun Ini", "Bulan Ini", "30 Hari Terakhir", "7 Hari Terakhir"], 
+        "Waktu",
+        ["Semua Waktu", "Tahun Ini", "Bulan Ini", "30 Hari Terakhir", "7 Hari Terakhir"],
         label_visibility="collapsed"
     )
 
-# Filter Dataframe for Charts
+# Filter data Update untuk grafik (data real dari Bibit)
 now_date = pd.Timestamp.now()
-porto_valid_filtered = porto_valid.copy()
+df_chart = df_update.copy()
 
 if time_filter == "Tahun Ini":
-    porto_valid_filtered = porto_valid_filtered[porto_valid_filtered["Tanggal"].dt.year == now_date.year]
+    df_chart = df_chart[df_chart["Tanggal"].dt.year == now_date.year]
 elif time_filter == "Bulan Ini":
-    porto_valid_filtered = porto_valid_filtered[(porto_valid_filtered["Tanggal"].dt.year == now_date.year) & (porto_valid_filtered["Tanggal"].dt.month == now_date.month)]
+    df_chart = df_chart[(df_chart["Tanggal"].dt.year == now_date.year) & (df_chart["Tanggal"].dt.month == now_date.month)]
 elif time_filter == "30 Hari Terakhir":
-    porto_valid_filtered = porto_valid_filtered[porto_valid_filtered["Tanggal"] >= (now_date - pd.Timedelta(days=30))]
+    df_chart = df_chart[df_chart["Tanggal"] >= (now_date - pd.Timedelta(days=30))]
 elif time_filter == "7 Hari Terakhir":
-    porto_valid_filtered = porto_valid_filtered[porto_valid_filtered["Tanggal"] >= (now_date - pd.Timedelta(days=7))]
+    df_chart = df_chart[df_chart["Tanggal"] >= (now_date - pd.Timedelta(days=7))]
 
 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
@@ -302,10 +336,10 @@ col_a, col_b = st.columns([3, 2])
 
 with col_a:
     st.markdown('<div class="sec-card">', unsafe_allow_html=True)
-    st.markdown('<div class="sec-title">📈 Performa Nilai Portofolio</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-title">📈 Performa Nilai Portofolio (dari Bibit)</div>', unsafe_allow_html=True)
 
-    if not porto_valid_filtered.empty:
-        chart_df = porto_valid_filtered[["Tanggal", "Nilai Portofolio"]].copy()
+    if not df_chart.empty and df_chart["Nilai Portofolio"].sum() > 0:
+        chart_df = df_chart[["Tanggal", "Nilai Portofolio"]].copy()
 
         area = alt.Chart(chart_df).mark_area(
             line={"color": "#3b82f6", "strokeWidth": 2.5},
@@ -368,16 +402,18 @@ with col_a:
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Belum ada data Update portofolio.")
+        st.info("Belum ada data Update dari Bibit. Input \"Update\" lewat Google Form untuk melihat grafik performa.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 with col_b:
     st.markdown('<div class="sec-card">', unsafe_allow_html=True)
-    st.markdown('<div class="sec-title">📊 Growth per Update (%)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-title">📊 Growth antar Update (%)</div>', unsafe_allow_html=True)
 
-    # Gunakan porto_valid_filtered untuk filter waktu yang konsisten
-    df_g = df_update.loc[df_update.index.isin(porto_valid_filtered.index)].dropna(subset=["Growth (%)"]).copy()
+    # Growth chart: hanya dari Update (performa pasar real dari Bibit)
+    df_g = df_chart.dropna(subset=["Growth (%)"]).copy()
+    df_g = df_g[df_g["Growth (%)"].notna() & (df_g["Growth (%)"] != 0) & (df_g["Nilai Portofolio"] > 0)]
+
     if not df_g.empty:
         df_g["warna"] = df_g["Growth (%)"].apply(lambda v: "naik" if v >= 0 else "turun")
 
@@ -398,6 +434,7 @@ with col_b:
             tooltip=[
                 alt.Tooltip("Tanggal:T", title="Tanggal", format="%d %b %Y"),
                 alt.Tooltip("Growth (%):Q", title="Growth", format=".2f"),
+                alt.Tooltip("Nilai Portofolio:Q", title="Nilai Porto", format=","),
             ]
         ).properties(
             height=220, background="transparent"
@@ -413,11 +450,11 @@ with col_b:
         <div class="stat-row">
           <div class="stat-mini">
             <div class="stat-mini-val" style="color:#10b981">{pos_n}</div>
-            <div class="stat-mini-lbl">Update Naik</div>
+            <div class="stat-mini-lbl">Naik</div>
           </div>
           <div class="stat-mini">
             <div class="stat-mini-val" style="color:#ef4444">{neg_n}</div>
-            <div class="stat-mini-lbl">Update Turun</div>
+            <div class="stat-mini-lbl">Turun</div>
           </div>
           <div class="stat-mini">
             <div class="stat-mini-val">{avg_g:.2f}%</div>
@@ -426,13 +463,13 @@ with col_b:
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Butuh minimal 2 data Update untuk melihat growth.")
+        st.info("Butuh minimal 2 data Update dari Bibit untuk melihat grafik growth. Rutin input \"Update\" setiap hari agar grafik performa Anda terlihat.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ========================
-# TABEL TRANSAKSI
+# TABEL TRANSAKSI (DATA ASLI DARI SHEET)
 # ========================
 st.markdown('<div class="sec-card">', unsafe_allow_html=True)
 st.markdown('<div class="sec-title">📄 Riwayat Transaksi</div>', unsafe_allow_html=True)
@@ -441,27 +478,27 @@ f1, f2, _ = st.columns([1, 1, 3])
 with f1:
     filter_j = st.selectbox("Jenis", ["Semua", "Beli", "Update"], label_visibility="collapsed")
 with f2:
-    sort_o   = st.selectbox("Urutan", ["Terbaru", "Terlama"], label_visibility="collapsed")
+    sort_o = st.selectbox("Urutan", ["Terbaru", "Terlama"], label_visibility="collapsed")
 
-df_show = df.copy()
+# Gunakan data MENTAH (df_raw) agar sesuai Sheet
+df_show = df_raw.copy()
 if filter_j != "Semua":
     df_show = df_show[df_show["Jenis"] == filter_j]
 df_show = df_show.sort_values("Tanggal", ascending=(sort_o == "Terlama"))
 
 rows = ""
 for _, r in df_show.iterrows():
-    tag    = '<span class="tag-beli">Beli</span>' if r["Jenis"] == "Beli" \
-             else '<span class="tag-update">Update</span>'
-    nom    = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
-    porto  = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
-    
-    # Pastikan Tanggal valid sebelum strftime
+    tag = '<span class="tag-beli">Beli</span>' if r["Jenis"] == "Beli" \
+         else '<span class="tag-update">Update</span>'
+    nom = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
+    porto = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
+
     if pd.notnull(r["Tanggal"]):
         date_s = r["Tanggal"].strftime("%d %b %Y")
     else:
-        date_s = "Invalid Date"
-        
-    rows  += f"""
+        date_s = "—"
+
+    rows += f"""
     <tr>
       <td>{date_s}</td>
       <td>{tag}</td>
@@ -479,6 +516,62 @@ st.markdown(f"""
 </table>
 </div>
 """, unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ========================
+# HAPUS DATA (FITUR BARU)
+# ========================
+st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+st.markdown('<div class="sec-card">', unsafe_allow_html=True)
+st.markdown('<div class="sec-title">🗑️ Hapus Data Transaksi</div>', unsafe_allow_html=True)
+st.caption("Pilih baris yang ingin dihapus jika ada kesalahan input. Data akan langsung terhapus dari Google Sheet.")
+
+if not df_raw.empty:
+    # Buat pilihan dropdown dengan info lengkap + simpan sheet_row
+    options = []
+    sheet_row_map = {}  # mapping label → sheet row number
+    
+    for idx, r in df_raw.iterrows():
+        tgl = r["Tanggal"].strftime("%d %b %Y") if pd.notnull(r["Tanggal"]) else "?"
+        nom = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
+        porto = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
+        label = f"{tgl} | {r['Jenis']} | Nominal: {nom} | Porto: {porto}"
+        options.append(label)
+        sheet_row_map[label] = r["_sheet_row"]  # Posisi baris asli di Sheet
+
+    selected = st.selectbox("Pilih data yang akan dihapus:", options, label_visibility="collapsed")
+
+    col_del1, col_del2, _ = st.columns([1.5, 1.5, 5])
+    with col_del1:
+        if st.button("🗑️ Hapus Baris Ini", type="primary", use_container_width=True):
+            st.session_state["confirm_delete"] = True
+            st.session_state["delete_target"] = selected
+
+    # Konfirmasi
+    if st.session_state.get("confirm_delete", False):
+        target = st.session_state.get("delete_target", "")
+        st.warning(f"⚠️ Yakin ingin menghapus: **{target}**?")
+        col_yes, col_no, _ = st.columns([1, 1, 6])
+        with col_yes:
+            if st.button("✅ Ya, Hapus!", key="confirm_yes", use_container_width=True):
+                try:
+                    # Gunakan _sheet_row yang sudah di-track dari awal
+                    actual_sheet_row = sheet_row_map.get(target)
+                    if actual_sheet_row:
+                        delete_row_from_sheet(actual_sheet_row)
+                        st.session_state["confirm_delete"] = False
+                        st.success("✅ Data berhasil dihapus! Memuat ulang...")
+                        st.rerun()
+                    else:
+                        st.error("❌ Baris tidak ditemukan.")
+                except Exception as e:
+                    st.error(f"❌ Gagal menghapus: {e}")
+        with col_no:
+            if st.button("❌ Batal", key="confirm_no", use_container_width=True):
+                st.session_state["confirm_delete"] = False
+                st.rerun()
+
 st.markdown("</div>", unsafe_allow_html=True)
 
 
