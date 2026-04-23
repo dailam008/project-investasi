@@ -49,12 +49,21 @@ def pct_badge(val: float) -> str:
 # ========================
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/152F-tMvERYDC18XRKwfY2JWhIP1i0K5Z7pWmgiKazp0"
 
+import json
+
 # ========================
 # LOAD DATA
 # ========================
 @st.cache_data(ttl=300)
 def load_data():
-    client = gspread.service_account(filename="credentials.json")
+    try:
+        # Coba menggunakan Streamlit Secrets (untuk deployment)
+        creds_dict = json.loads(st.secrets["GCP_CREDENTIALS_JSON"])
+        client = gspread.service_account_from_dict(creds_dict)
+    except Exception:
+        # Fallback ke file lokal jika rahasia tidak ditemukan
+        client = gspread.service_account(filename="credentials.json")
+        
     sheet  = client.open_by_url(SPREADSHEET_URL).sheet1
     df = pd.DataFrame(sheet.get_all_records())
     df.columns          = df.columns.str.strip()
