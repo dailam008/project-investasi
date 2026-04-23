@@ -116,6 +116,7 @@ with st.spinner("Memuat data…"):
 # ========================
 # Perhitungan KPI
 total_modal      = df[df["Jenis"] == "Beli"]["Nominal"].sum()
+df_beli          = df[df["Jenis"] == "Beli"].copy()
 nilai_portofolio = df["Nilai Portofolio"].iloc[-1] if not df.empty else 0
 profit           = nilai_portofolio - total_modal
 growth           = (profit / total_modal * 100) if total_modal > 0 else 0
@@ -303,8 +304,8 @@ with col_a:
     st.markdown('<div class="sec-card">', unsafe_allow_html=True)
     st.markdown('<div class="sec-title">📈 Performa Nilai Portofolio</div>', unsafe_allow_html=True)
 
-    if not df.empty:
-        chart_df = df[["Tanggal", "Nilai Portofolio"]].copy()
+    if not porto_valid_filtered.empty:
+        chart_df = porto_valid_filtered[["Tanggal", "Nilai Portofolio"]].copy()
 
         area = alt.Chart(chart_df).mark_area(
             line={"color": "#3b82f6", "strokeWidth": 2.5},
