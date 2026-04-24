@@ -3,6 +3,8 @@ import pandas as pd
 import gspread
 import altair as alt
 import json
+import base64
+import os
 from datetime import datetime
 
 # ========================
@@ -25,8 +27,61 @@ except FileNotFoundError:
     pass
 
 # ========================
-# KONFIGURASI
+# VIDEO BACKGROUND (LOCAL)
 # ========================
+def get_base64_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+video_path = "assets/background.mp4"
+if os.path.exists(video_path):
+    bin_str = get_base64_bin_file(video_path)
+    video_html = f"""
+    <style>
+    #bg-video {{
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        min-width: 100%;
+        min-height: 100%;
+        width: auto;
+        height: auto;
+        z-index: -1000;
+        transform: translate(-50%, -50%);
+        object-fit: cover;
+        opacity: 0.4;
+        filter: brightness(0.8) contrast(1.1);
+        pointer-events: none;
+    }}
+    /* Pastikan container streamlit transparan */
+    [data-testid="stAppViewContainer"] {{
+        background: transparent !important;
+    }}
+    .stApp {{
+        background: transparent !important;
+    }}
+    /* Overlay lebih cerah */
+    .video-overlay {{
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(11, 15, 26, 0.3);
+        z-index: -999;
+        pointer-events: none;
+    }}
+    </style>
+    <div class="video-overlay"></div>
+    <video autoplay loop muted playsinline id="bg-video">
+        <source src="data:video/mp4;base64,{bin_str}" type="video/mp4">
+    </video>
+    """
+    st.markdown(video_html, unsafe_allow_html=True)
+else:
+    # Fallback jika file tidak ada
+    st.markdown("<style>.stApp { background-color: #0b0f1a; }</style>", unsafe_allow_html=True)
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/152F-tMvERYDC18XRKwfY2JWhIP1i0K5Z7pWmgiKazp0"
 TARGET_INVESTASI = 100_000_000
 GFORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScwfJXsqGB1g5gLAWv9W3bGpl2z2n2jUywWrf7WpgN5FhB3Zg/viewform"
@@ -229,8 +284,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
-    st.markdown(f"""<div class="kpi-card">
-      <div class="kpi-accent-top" style="background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
+    st.markdown(f"""<div class="kpi-card" style="border-top: 3px solid #3b82f6">
       <div class="kpi-label">Nilai Portofolio</div>
       <div class="kpi-value">{fmt(nilai_portofolio)}</div>
       {pct_badge(growth)}
@@ -238,16 +292,14 @@ with c1:
     </div>""", unsafe_allow_html=True)
 
 with c2:
-    st.markdown(f"""<div class="kpi-card">
-      <div class="kpi-accent-top" style="background:linear-gradient(90deg,#8b5cf6,#a78bfa)"></div>
+    st.markdown(f"""<div class="kpi-card" style="border-top: 3px solid #94a3b8">
       <div class="kpi-label">Total Modal</div>
       <div class="kpi-value">{fmt(total_modal)}</div>
       <div class="kpi-sub">{len(df_beli)}x transaksi beli</div>
     </div>""", unsafe_allow_html=True)
 
 with c3:
-    st.markdown(f"""<div class="kpi-card">
-      <div class="kpi-accent-top" style="background:linear-gradient(90deg,{profit_color},{profit_color}88)"></div>
+    st.markdown(f"""<div class="kpi-card" style="border-top: 3px solid {profit_color}">
       <div class="kpi-label">Profit / Loss</div>
       <div class="kpi-value" style="color:{profit_color}">{"+" if profit>=0 else ""}{fmt(profit)}</div>
       <div class="kpi-sub">{'✅ untung bersih' if profit >= 0 else '❌ rugi bersih'}</div>
@@ -255,8 +307,7 @@ with c3:
 
 with c4:
     bm = "outperform 🚀" if growth >= 7 else "underperform ⚠️"
-    st.markdown(f"""<div class="kpi-card">
-      <div class="kpi-accent-top" style="background:linear-gradient(90deg,#f59e0b,#fbbf24)"></div>
+    st.markdown(f"""<div class="kpi-card" style="border-top: 3px solid #f59e0b">
       <div class="kpi-label">Return (%)</div>
       <div class="kpi-value" style="color:{growth_color}">{growth:+.2f}%</div>
       <div class="kpi-sub">{bm} vs 7%</div>
@@ -423,18 +474,18 @@ df_show = df_show.sort_values("Tanggal", ascending=(sort_o == "Terlama"))
 rows_html = ""
 for _, r in df_show.iterrows():
     if r["Jenis"] == "Beli":
-        tag = '<span class="tag-beli">Beli</span>'
+        tag = '<span class="tag-beli">💰 Beli</span>'
     else:
-        tag = '<span class="tag-update">Update</span>'
+        tag = '<span class="tag-update">📈 Update</span>'
         
     nom = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
     porto = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
     tgl = r["Tanggal"].strftime("%d %b %Y") if pd.notnull(r["Tanggal"]) else "—"
-    rows_html += f'<tr><td>{tgl}</td><td>{tag}</td><td style="color:#f1f5f9;font-weight:600">{nom}</td><td style="color:#f1f5f9;font-weight:600">{porto}</td></tr>'
+    rows_html += f'<tr><td>{tgl}</td><td>{tag}</td><td style="color:#ffffff;font-weight:600">{nom}</td><td style="color:#ffffff;font-weight:600">{porto}</td></tr>'
 
-st.markdown(f"""<div style="overflow-x:auto">
+st.markdown(f"""<div style="overflow-x:auto; margin-top: 10px;">
 <table class="tx-table">
-  <thead><tr><th>Tanggal</th><th>Jenis</th><th>Nominal</th><th>Nilai Portofolio</th></tr></thead>
+  <thead><tr><th>Tanggal</th><th>Jenis Transaksi</th><th>Nominal</th><th>Nilai Aset</th></tr></thead>
   <tbody>{rows_html}</tbody>
 </table></div>""", unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -444,8 +495,8 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ========================
 st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 st.markdown('<div class="sec-card">', unsafe_allow_html=True)
-st.markdown('<div class="sec-title">🗑️ Hapus Data</div>', unsafe_allow_html=True)
-st.caption("Pilih data yang salah input. Data langsung terhapus dari Google Sheet.")
+st.markdown('<div class="sec-title">🗑️ Management Data</div>', unsafe_allow_html=True)
+st.markdown('<div style="font-size:12px; color:#64748b; margin-bottom:15px;">Pilih entri yang ingin dihapus dari Google Sheets. Tindakan ini tidak bisa dibatalkan.</div>', unsafe_allow_html=True)
 
 options_list = []
 row_map = {}
@@ -454,31 +505,37 @@ for _, r in df.iterrows():
     tgl = r["Tanggal"].strftime("%d %b %Y") if pd.notnull(r["Tanggal"]) else "?"
     nom = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
     porto = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
-    label = f"{tgl} | {r['Jenis']} | Nominal: {nom} | Porto: {porto}"
+    label = f"{tgl} | {r['Jenis']} | {nom} | {porto}"
     options_list.append(label)
     row_map[label] = int(r["_sheet_row"])
 
-selected = st.selectbox("Pilih:", options_list, label_visibility="collapsed")
-
-if st.button("🗑️ Hapus Baris Ini", type="primary"):
-    st.session_state["confirm_delete"] = True
-    st.session_state["delete_target"] = selected
+del_col1, del_col2 = st.columns([4, 1])
+with del_col1:
+    selected = st.selectbox("Pilih Data:", options_list, label_visibility="collapsed")
+with del_col2:
+    if st.button("🗑️ Hapus", type="primary", use_container_width=True):
+        st.session_state["confirm_delete"] = True
+        st.session_state["delete_target"] = selected
 
 if st.session_state.get("confirm_delete"):
     target = st.session_state.get("delete_target", "")
-    st.warning(f"⚠️ Yakin hapus: **{target}**?")
-    c_yes, c_no, _ = st.columns([1, 1, 6])
+    st.markdown(f"""<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 15px; border-radius: 12px; margin-top: 15px;">
+        <div style="color: #ef4444; font-weight: 600; font-size: 13px; margin-bottom: 10px;">⚠️ Konfirmasi Penghapusan?</div>
+        <div style="color: #94a3b8; font-size: 12px; margin-bottom: 15px;">Anda akan menghapus: <b>{target}</b></div>
+    </div>""", unsafe_allow_html=True)
+    
+    c_yes, c_no, _ = st.columns([1, 1, 4])
     with c_yes:
-        if st.button("✅ Ya, Hapus!", key="yes_del"):
+        if st.button("Ya, Hapus", key="yes_del", use_container_width=True):
             try:
                 delete_row_from_sheet(row_map[target])
                 st.session_state["confirm_delete"] = False
-                st.success("✅ Berhasil dihapus!")
+                st.success("Berhasil dihapus!")
                 st.rerun()
             except Exception as e:
-                st.error(f"❌ Gagal: {e}")
+                st.error(f"Gagal: {e}")
     with c_no:
-        if st.button("❌ Batal", key="no_del"):
+        if st.button("Batal", key="no_del", use_container_width=True):
             st.session_state["confirm_delete"] = False
             st.rerun()
 
