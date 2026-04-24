@@ -62,6 +62,24 @@ footer {
     margin-top: 3px;
 }
 
+/* Fix Streamlit column alignment in topbar */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    margin-top: -55px !important;
+}
+@media (max-width: 768px) {
+    [data-testid="stVerticalBlockBorderWrapper"] { margin-top: 0 !important; }
+}
+
+/* Error message styling */
+[data-testid="stNotification"] {
+    padding: 8px !important;
+    font-size: 11px !important;
+    background: rgba(239, 68, 68, 0.1) !important;
+    border: 1px solid rgba(239, 68, 68, 0.2) !important;
+    color: #ef4444 !important;
+    margin-top: 5px !important;
+}
+
 .live-pill {
     display: inline-flex;
     align-items: center;
@@ -555,4 +573,18 @@ footer {
 [data-testid="stVegaLiteChart"] {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+}
+
+/* ── Vega Tooltip Mobile Fix ── */
+#vg-tooltip-element {
+    z-index: 10001 !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 11px !important;
+    background-color: rgba(15, 23, 42, 0.95) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    backdrop-filter: blur(8px) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+    transition: opacity 0.1s ease !important;
+    /* Mencegah tooltip 'melayang' saat scroll */
+    pointer-events: none !important;
 }

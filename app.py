@@ -5,6 +5,7 @@ import altair as alt
 import json
 import base64
 import os
+import time
 from datetime import datetime
 
 # ========================
@@ -55,6 +56,31 @@ if os.path.exists(video_path):
         pointer-events: none;
     }}
     /* Pastikan container streamlit transparan */
+    [data-testid="stForm"] {{
+        border: none !important;
+        padding: 0 !important;
+    }}
+
+    /* ── Custom Input Styling ── */
+    div[data-testid="stTextInput"] input {{
+        background-color: rgba(30, 41, 59, 0.4) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: #ffffff !important;
+        border-radius: 12px !important;
+        padding: 10px 15px !important;
+        font-size: 13px !important;
+        transition: all 0.3s ease !important;
+    }}
+
+    div[data-testid="stTextInput"] input:focus {{
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+        background-color: rgba(30, 41, 59, 0.6) !important;
+    }}
+
+    div[data-testid="stTextInput"] label {{
+        display: none !important;
+    }}
     [data-testid="stAppViewContainer"] {{
         background: transparent !important;
     }}
@@ -169,7 +195,7 @@ def delete_row_from_sheet(sheet_row: int) -> None:
 # ========================
 # LOAD DATA
 # ========================
-with st.spinner("Memuat data…"):
+with st.spinner("Memasuki Dashboard..."):
     try:
         df = load_data()
     except Exception as e:
@@ -243,17 +269,51 @@ profit_color = "#10b981" if profit >= 0 else "#ef4444"
 growth_color = "#10b981" if growth >= 0 else "#ef4444"
 
 # ========================
-# TOPBAR
+# SECURITY GATE (SILUMAN MODE)
 # ========================
-st.markdown(f"""
-<div class="topbar">
-  <div>
-    <div class="topbar-title">💼 Dashboard Investasi</div>
-    <div class="topbar-sub">Update: {now_str} · {len(df)} entri data</div>
-  </div>
-  <div class="live-pill"><div class="live-dot"></div>Live · Google Sheets</div>
-</div>
-""", unsafe_allow_html=True)
+if "admin_active" not in st.session_state:
+    st.session_state["admin_active"] = False
+if "show_login" not in st.session_state:
+    st.session_state["show_login"] = False
+
+# ========================
+# ========================
+# TOPBAR (UNIFIED & SECURE)
+# ========================
+# Layout Topbar: Kiri(Title), Kanan(Live Pill + Hidden Gate)
+top_col1, top_col2 = st.columns([2, 1])
+
+with top_col1:
+    st.markdown(f"""
+    <div style="display: flex; flex-direction: column;">
+        <div class="topbar-title">
+            <span class="gradient-text">Financial OS</span>
+            <span style="font-size: 14px; opacity: 0.6; margin-left: 8px; font-weight: 400;">Portfolio Intelligence</span>
+        </div>
+        <div class="topbar-sub">Terakhir diperbarui: {now_str} · {len(df)} transaksi</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with top_col2:
+    # Baris Atas: Live Pill (Selalu ada)
+    st.markdown(f"""
+    <div style="display: flex; justify-content: flex-end;">
+        <div class="live-pill">
+            <div class="live-dot"></div>
+            <span style="letter-spacing: 0.5px;">LIVE SYNC</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if st.session_state["admin_active"]:
+        st.markdown('<div style="height: 10px;"></div>', unsafe_allow_html=True)
+        if st.button("🔓 Logout Admin", type="secondary", use_container_width=True):
+            st.session_state["admin_active"] = False
+            st.rerun()
+            st.session_state["admin_active"] = False
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Progress Bar ──
 pct = min((nilai_portofolio / TARGET_INVESTASI * 100) if TARGET_INVESTASI > 0 else 0, 100)
@@ -267,16 +327,73 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Tombol Aksi ──
-col_btn1, col_btn2, _ = st.columns([1.5, 1.5, 5])
+# ── Tombol Aksi (Refined Glassmorphism) ──
+st.markdown("""
+<style>
+.action-btn-container {
+    display: flex;
+    gap: 12px;
+    margin-top: -15px;
+    margin-bottom: 25px;
+}
+/* Paksa tombol streamlit jadi glass murni */
+div.stButton > button {
+    background: rgba(255, 255, 255, 0.05) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    border-radius: 12px !important;
+    padding: 8px 20px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    transition: all 0.3s ease !important;
+    height: 42px !important;
+}
+div.stButton > button:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: #ffffff !important;
+    transform: translateY(-2px);
+}
+/* Link button styling */
+div.stLinkButton > a {
+    background: rgba(59, 130, 246, 0.2) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(59, 130, 246, 0.3) !important;
+    color: #60a5fa !important;
+    border-radius: 12px !important;
+    padding: 8px 20px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    transition: all 0.3s ease !important;
+    height: 42px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none !important;
+}
+div.stLinkButton > a:hover {
+    background: rgba(59, 130, 246, 0.3) !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+    transform: translateY(-2px);
+}
+</style>
+""", unsafe_allow_html=True)
+
+col_btn1, col_btn2, _ = st.columns([1.5, 2, 4])
 with col_btn1:
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("🔄 Refresh Data", key="refresh_top"):
         st.cache_data.clear()
         st.rerun()
-with col_btn2:
-    st.link_button("📝 Input Data Baru", GFORM_URL, use_container_width=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
+if st.session_state["admin_active"]:
+    with col_btn2:
+        st.link_button("📝 Input Data Baru", GFORM_URL, use_container_width=True)
+
+st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
 # ========================
 # KPI CARDS
@@ -491,59 +608,119 @@ st.markdown(f"""<div style="overflow-x:auto; margin-top: 10px;">
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ========================
-# HAPUS DATA
+# MANAGEMENT DATA (ADMIN ONLY)
 # ========================
-st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-st.markdown('<div class="sec-card">', unsafe_allow_html=True)
-st.markdown('<div class="sec-title">🗑️ Management Data</div>', unsafe_allow_html=True)
-st.markdown('<div style="font-size:12px; color:#64748b; margin-bottom:15px;">Pilih entri yang ingin dihapus dari Google Sheets. Tindakan ini tidak bisa dibatalkan.</div>', unsafe_allow_html=True)
+if st.session_state["admin_active"]:
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="sec-card" style="border: 1px solid rgba(245, 158, 11, 0.3);">', unsafe_allow_html=True)
+    st.markdown('<div class="sec-title" style="color:#f59e0b">🛡️ Admin Management</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:12px; color:#64748b; margin-bottom:15px;">Pilih entri yang ingin dihapus dari Google Sheets. Tindakan ini tidak bisa dibatalkan.</div>', unsafe_allow_html=True)
 
-options_list = []
-row_map = {}
+    options_list = []
+    row_map = {}
 
-for _, r in df.iterrows():
-    tgl = r["Tanggal"].strftime("%d %b %Y") if pd.notnull(r["Tanggal"]) else "?"
-    nom = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
-    porto = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
-    label = f"{tgl} | {r['Jenis']} | {nom} | {porto}"
-    options_list.append(label)
-    row_map[label] = int(r["_sheet_row"])
+    for _, r in df.iterrows():
+        tgl = r["Tanggal"].strftime("%d %b %Y") if pd.notnull(r["Tanggal"]) else "?"
+        nom = fmt_full(r["Nominal"]) if r["Nominal"] > 0 else "—"
+        porto = fmt_full(r["Nilai Portofolio"]) if r["Nilai Portofolio"] > 0 else "—"
+        label = f"{tgl} | {r['Jenis']} | {nom} | {porto}"
+        options_list.append(label)
+        row_map[label] = int(r["_sheet_row"])
 
-del_col1, del_col2 = st.columns([4, 1])
-with del_col1:
-    selected = st.selectbox("Pilih Data:", options_list, label_visibility="collapsed")
-with del_col2:
-    if st.button("🗑️ Hapus", type="primary", use_container_width=True):
-        st.session_state["confirm_delete"] = True
-        st.session_state["delete_target"] = selected
+    del_col1, del_col2 = st.columns([4, 1])
+    with del_col1:
+        selected = st.selectbox("Pilih Data:", options_list, label_visibility="collapsed")
+    with del_col2:
+        if st.button("🗑️ Hapus", type="primary", use_container_width=True):
+            st.session_state["confirm_delete"] = True
+            st.session_state["delete_target"] = selected
 
-if st.session_state.get("confirm_delete"):
-    target = st.session_state.get("delete_target", "")
-    st.markdown(f"""<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 15px; border-radius: 12px; margin-top: 15px;">
-        <div style="color: #ef4444; font-weight: 600; font-size: 13px; margin-bottom: 10px;">⚠️ Konfirmasi Penghapusan?</div>
-        <div style="color: #94a3b8; font-size: 12px; margin-bottom: 15px;">Anda akan menghapus: <b>{target}</b></div>
-    </div>""", unsafe_allow_html=True)
-    
-    c_yes, c_no, _ = st.columns([1, 1, 4])
-    with c_yes:
-        if st.button("Ya, Hapus", key="yes_del", use_container_width=True):
-            try:
-                delete_row_from_sheet(row_map[target])
+    if st.session_state.get("confirm_delete"):
+        target = st.session_state.get("delete_target", "")
+        st.markdown(f"""<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 15px; border-radius: 12px; margin-top: 15px;">
+            <div style="color: #ef4444; font-weight: 600; font-size: 13px; margin-bottom: 10px;">⚠️ Konfirmasi Penghapusan?</div>
+            <div style="color: #94a3b8; font-size: 12px; margin-bottom: 15px;">Anda akan menghapus: <b>{target}</b></div>
+        </div>""", unsafe_allow_html=True)
+        
+        c_yes, c_no, _ = st.columns([1, 1, 4])
+        with c_yes:
+            if st.button("Ya, Hapus", key="yes_del", use_container_width=True):
+                try:
+                    delete_row_from_sheet(row_map[target])
+                    st.session_state["confirm_delete"] = False
+                    st.success("Berhasil dihapus!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal: {e}")
+        with c_no:
+            if st.button("Batal", key="no_del", use_container_width=True):
                 st.session_state["confirm_delete"] = False
-                st.success("Berhasil dihapus!")
                 st.rerun()
-            except Exception as e:
-                st.error(f"Gagal: {e}")
-    with c_no:
-        if st.button("Batal", key="no_del", use_container_width=True):
-            st.session_state["confirm_delete"] = False
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ========================
+# FOOTER & GHOST GATE (ULTRA STEALTH BAR)
+# ========================
+st.markdown("<div style='height:100px'></div>", unsafe_allow_html=True)
+
+# Tampilkan Footer sebagai Tombol Rahasia Panjang
+footer_text = f"Financial OS · Intelligence Portfolio · {len(df)} records · synced"
+
+# CSS untuk Bar Rahasia
+st.markdown("""
+<style>
+.stealth-footer-bar {
+    background: rgba(15, 23, 42, 0.2);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 12px 30px;
+    margin: 0 auto;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.stealth-footer-bar:hover {
+    background: rgba(15, 23, 42, 0.3);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+/* Override Streamlit Button jadi stealth */
+div[data-testid="stButton"] button[kind="secondary"] {
+    background: transparent !important;
+    border: none !important;
+    color: #475569 !important;
+    font-size: 11px !important;
+    opacity: 0.4;
+    padding: 0 !important;
+    height: auto !important;
+    letter-spacing: 1px;
+    width: 100% !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="stealth-footer-bar">', unsafe_allow_html=True)
+
+# Baris 1: Teks Footer (Trigger)
+if st.button(footer_text, key="ghost_bar_btn", use_container_width=True, type="secondary"):
+    st.session_state["show_login"] = not st.session_state["show_login"]
+
+# Baris 2: Input (Jika aktif)
+if st.session_state.get("show_login"):
+    st.markdown('<div style="width: 100%; max-width: 200px; margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">', unsafe_allow_html=True)
+    pwd = st.text_input("PIN", type="password", placeholder="PIN", label_visibility="collapsed", key="ultra_stealth_pin")
+    if pwd:
+        if pwd == "008":
+            st.session_state["admin_active"] = True
+            st.session_state["show_login"] = False
             st.rerun()
+        else:
+            st.markdown('<div style="color: #f87171; font-size: 10px; text-align: center; margin-top: 8px; font-weight: 600; letter-spacing: 1px;">INVALID</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("</div>", unsafe_allow_html=True)
-
-# ========================
-# FOOTER
-# ========================
-st.markdown(f"""<div class="dash-footer">
-  Streamlit · Google Sheets · {len(df)} data · cache 5 menit
-</div>""", unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
